@@ -1,5 +1,5 @@
 import os
-from flask import Flask, request, make_response, Response, Blueprint
+from flask import Flask, request, make_response, Response, Blueprint,render_template,redirect
 import json
 import time
 from dotenv import load_dotenv
@@ -20,11 +20,21 @@ class App:
                 self.app.register_blueprint(self.app_bp, url_prefix='/uit/dsp')
 
     def _setup_routes(self):
-        @self.app_bp.route('', methods=['POST'])
+        @self.app.route('/')
+        def redirect_to_dsp():
+            return redirect('/uit/dsp/')
+        
+        @self.app_bp.route('/preprocess', methods=['POST'])
         def preprocessing():
-           return
-    
-    
+            return
+        @self.app_bp.route('/')
+        def home():
+            return render_template('index.html')
+
     def run(self, port):
-        self.app.run(port=port, debug=True)
+        self.app.run(host='localhost', port=port, debug=True)
+
+if __name__ == "__main__":
+    app_dsp = App()
+    app_dsp.run(port=5000)
 
