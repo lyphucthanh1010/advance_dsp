@@ -27,6 +27,39 @@ class App:
         @self.app_bp.route('/preprocess', methods=['POST'])
         def preprocessing():
             return
+        
+        @self.app_bp.route('/preparedata', methods= ['POST'])
+        def prepare_data():
+            return
+        
+        @self.app_bp.route('/predict', methods = ['POST'])
+        def predict():
+            return
+        
+        @self.app_bp.route('/convert', methods = ['POST'])
+        def convert2wav():
+            return
+        
+        @self.app_bp.route('/segment', methods = ['POST'])
+        def segment_song():
+            return
+        
+        @self.app_bp.route('/augment', methods = ['POST'])
+        def augment():
+            return
+        
+        @self.app_bp.route('/train', methods = ['POST'])
+        def train():
+            return
+        
+        @self.app_bp.route('/validate', methods = ['POST'])
+        def validate():
+            return
+        
+        @self.app_bp.route('/predict_youtube', methods = ['POST'])
+        def predict_youtube():
+            return
+
         @self.app_bp.route('/')
         def home():
             return render_template('index.html')
