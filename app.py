@@ -64,10 +64,10 @@ class App:
         def home():
             return render_template('index.html')
 
-    def run(self, port):
-        self.app.run(host='localhost', port=port, debug=True)
+    def run(self):
+        self.app.run(host='localhost', port=os.getenv('FLASK_PORT'), debug=True)
 
 if __name__ == "__main__":
     app_dsp = App()
-    app_dsp.run(port=5000)
+    app_dsp.run()
 
