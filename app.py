@@ -1,9 +1,12 @@
 import os
-from flask import Flask, request, make_response, Response, Blueprint,render_template,redirect
+from flask import Flask, request, make_response, Response, Blueprint,render_template,redirect, jsonify
 import json
 import time
 from dotenv import load_dotenv
 from flask_cors import CORS
+import os
+import librosa
+import soundfile as sf
 
 class App:
     def __init__(self):
@@ -37,8 +40,41 @@ class App:
             return
         
         @self.app_bp.route('/convert', methods = ['POST'])
-        def convert2wav():
-            return
+        def convert2wav(input_path, output_folder):
+            if not os.path.isfile(input_path):
+                raise FileNotFoundError(f"Tệp đầu vào không tồn tại: {input_path}")
+
+            # Tạo thư mục đầu ra nếu chưa tồn tại
+            if not os.path.exists(output_folder):
+                os.makedirs(output_folder)
+
+            # Lấy tên tệp và tạo đường dẫn cho tệp WAV đầu ra
+            base_filename = os.path.splitext(os.path.basename(input_path))[0]
+            wav_filename = base_filename + ".wav"
+            wav_path = os.path.join(output_folder, wav_filename)
+
+            try:
+                # Tải tệp âm thanh bằng librosa
+                y, sr = librosa.load(input_path, sr=None, mono=False)  # mono=False để giữ nguyên số kênh
+
+                # Kiểm tra số kênh âm thanh và định dạng dữ liệu
+                if y.ndim == 1:
+                    # Âm thanh mono
+                    data = y
+                else:
+                    # Âm thanh stereo hoặc nhiều kênh
+                    data = y.T  # soundfile yêu cầu kênh là trục thứ hai
+
+                # Ghi tệp WAV bằng soundfile
+                sf.write(wav_path, data, sr, subtype='PCM_16')  # Bạn có thể thay đổi subtype nếu cần
+
+                print(f"Đã chuyển đổi {input_path} thành {wav_path}")
+                return wav_path
+
+            except Exception as e:
+                print(f"Lỗi khi chuyển đổi tệp {input_path}: {e}")
+                raise
+
         
         @self.app_bp.route('/segment', methods = ['POST'])
         def segment_song():
