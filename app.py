@@ -44,7 +44,6 @@ class App:
             if not os.path.isfile(input_path):
                 raise FileNotFoundError(f"Tệp đầu vào không tồn tại: {input_path}")
 
-            # Tạo thư mục đầu ra nếu chưa tồn tại
             if not os.path.exists(output_folder):
                 os.makedirs(output_folder)
 
