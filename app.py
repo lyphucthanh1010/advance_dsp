@@ -47,7 +47,6 @@ class App:
             if not os.path.exists(output_folder):
                 os.makedirs(output_folder)
 
-            # Lấy tên tệp và tạo đường dẫn cho tệp WAV đầu ra
             base_filename = os.path.splitext(os.path.basename(input_path))[0]
             wav_filename = base_filename + ".wav"
             wav_path = os.path.join(output_folder, wav_filename)
