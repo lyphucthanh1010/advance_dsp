@@ -52,7 +52,6 @@ class App:
             wav_path = os.path.join(output_folder, wav_filename)
 
             try:
-                # Tải tệp âm thanh bằng librosa
                 y, sr = librosa.load(input_path, sr=None, mono=False)  # mono=False để giữ nguyên số kênh
 
                 # Kiểm tra số kênh âm thanh và định dạng dữ liệu
