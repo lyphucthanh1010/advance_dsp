@@ -55,7 +55,6 @@ class App:
                 y, sr = librosa.load(input_path, sr=None, mono=False)  # mono=False để giữ nguyên số kênh
 
                 if y.ndim == 1:
-                    # Âm thanh mono
                     data = y
                 else:
                     # Âm thanh stereo hoặc nhiều kênh
