@@ -57,7 +57,6 @@ class App:
                 if y.ndim == 1:
                     data = y
                 else:
-                    # Âm thanh stereo hoặc nhiều kênh
                     data = y.T  # soundfile yêu cầu kênh là trục thứ hai
 
                 # Ghi tệp WAV bằng soundfile
