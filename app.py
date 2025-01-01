@@ -57,9 +57,7 @@ class App:
                 if y.ndim == 1:
                     data = y
                 else:
-                    data = y.T  # soundfile yêu cầu kênh là trục thứ hai
-
-                # Ghi tệp WAV bằng soundfile
+                    data = y.T
                 sf.write(wav_path, data, sr, subtype='PCM_16')  # Bạn có thể thay đổi subtype nếu cần
 
                 print(f"Đã chuyển đổi {input_path} thành {wav_path}")
