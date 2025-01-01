@@ -52,13 +52,13 @@ class App:
             wav_path = os.path.join(output_folder, wav_filename)
 
             try:
-                y, sr = librosa.load(input_path, sr=None, mono=False)  # mono=False để giữ nguyên số kênh
+                y, sr = librosa.load(input_path, sr=None, mono=False)
 
                 if y.ndim == 1:
                     data = y
                 else:
                     data = y.T
-                sf.write(wav_path, data, sr, subtype='PCM_16')  # Bạn có thể thay đổi subtype nếu cần
+                sf.write(wav_path, data, sr, subtype='PCM_16') 
 
                 print(f"Đã chuyển đổi {input_path} thành {wav_path}")
                 return wav_path
