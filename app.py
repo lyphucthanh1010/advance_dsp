@@ -37,7 +37,6 @@ class App:
         
         @self.app_bp.route('/predict', methods = ['POST'])
         def predict():
-            print("")
             return
         
         @self.app_bp.route('/convert', methods = ['POST'])
