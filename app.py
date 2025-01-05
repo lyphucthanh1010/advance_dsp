@@ -60,7 +60,6 @@ class App:
                     data = y.T
                 sf.write(wav_path, data, sr, subtype='PCM_16') 
 
-                print(f"Đã chuyển {input_path} thành {wav_path}")
                 return wav_path
 
             except Exception as e:
