@@ -41,8 +41,8 @@ class App:
         
         @self.app_bp.route('/convert', methods = ['POST'])
         def convert2wav(input_path, output_folder):
-            if not os.path.isfile(input_path):
-                raise FileNotFoundError(f"Tệp đầu vào không tồn tại: {input_path}")
+            # if not os.path.isfile(input_path):
+            #     raise FileNotFoundError(f"Tệp đầu vào không tồn tại: {input_path}")
 
             if not os.path.exists(output_folder):
                 os.makedirs(output_folder)
