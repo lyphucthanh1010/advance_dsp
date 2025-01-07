@@ -92,7 +92,7 @@ class App:
             return render_template('index.html')
 
     def run(self):
-        self.app.run(host='0.0.0.0', port=os.getenv('FLASK_PORT'), debug=True)
+        self.app.run(host='localhost', port=os.getenv('FLASK_PORT'), debug=True)
 
 if __name__ == "__main__":
     app_dsp = App()
