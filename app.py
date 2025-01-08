@@ -1,7 +1,6 @@
 import os
 from flask import Flask, request, make_response, Response, Blueprint,render_template,redirect, jsonify
 import json
-import time
 from dotenv import load_dotenv
 from flask_cors import CORS
 import os
@@ -92,7 +91,7 @@ class App:
             return render_template('index.html')
 
     def run(self):
-        self.app.run(host='localhost', port=os.getenv('FLASK_PORT'), debug=True)
+        self.app.run(host='', port=os.getenv('FLASK_PORT'), debug=True)
 
 if __name__ == "__main__":
     app_dsp = App()
