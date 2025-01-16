@@ -78,9 +78,9 @@ class App:
         def train():
             return
         
-        @self.app_bp.route('/validate', methods = ['POST'])
-        def validate():
-            return
+        # @self.app_bp.route('/validate', methods = ['POST'])
+        # def validate():
+        #     return
         
         @self.app_bp.route('/predict_youtube', methods = ['POST'])
         def predict_youtube():
