@@ -70,9 +70,9 @@ class App:
         def segment_song():
             return
         
-        # @self.app_bp.route('/augment', methods = ['POST'])
-        # def augment():
-        #     return
+        @self.app_bp.route('/augment', methods = ['POST'])
+        def augment():
+            return
         
         @self.app_bp.route('/train', methods = ['POST'])
         def train():
