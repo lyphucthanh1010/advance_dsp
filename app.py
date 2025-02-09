@@ -90,9 +90,9 @@ class App:
         def predict_youtube():
             return
 
-        # @self.app_bp.route('/')
-        # def home():
-        #     return render_template('index.html')
+        @self.app_bp.route('/')
+        def home():
+            return render_template('index.html')
 
     def run(self):
         self.app.run(host='', port=os.getenv('FLASK_PORT'), debug=True)
