@@ -38,9 +38,9 @@ class App:
         def predict():
             return
         
-        # @self.app_bp.route('/check', methods= ['POST'])
-        # def check():
-        #     return 
+        @self.app_bp.route('/check', methods= ['POST'])
+        def check():
+            return 
         
         @self.app_bp.route('/convert', methods = ['POST'])
         def convert2wav(input_path, output_folder):
