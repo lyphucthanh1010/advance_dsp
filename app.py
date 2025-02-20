@@ -88,6 +88,7 @@ class App:
         
         @self.app_bp.route('/predict_youtube', methods = ['POST'])
         def predict_youtube():
+            print("")
             return
 
         @self.app_bp.route('/')
