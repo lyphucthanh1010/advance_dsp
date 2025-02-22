@@ -28,4 +28,3 @@ for root, dirs, files in os.walk(source_directory):
                     destination_file = os.path.join(destination_directory, new_file)
             
             shutil.move(source_file, destination_file)
-            print(f"Đã di chuyển: {source_file} -> {destination_file}")
