@@ -34,9 +34,9 @@ class App:
         def preprocessing():
             return
         
-        @self.app_bp.route('/preparedata', methods= ['POST'])
-        def prepare_data():
-            return
+        # @self.app_bp.route('/preparedata', methods= ['POST'])
+        # def prepare_data():
+        #     return
         
         @self.app_bp.route('/predict', methods = ['POST'])
         def predict():
