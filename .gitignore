@@ -1,3 +1,4 @@
 venv/
 .env
 music_dataset
+music_dataset_wav

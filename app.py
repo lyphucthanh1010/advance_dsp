@@ -3,6 +3,7 @@ from flask import Flask, request, make_response, Response, Blueprint,render_temp
 from get_chromaprint_func import get_chromaprints, get_all_chromaprints
 import json
 from dotenv import load_dotenv
+from pydub import AudioSegment
 from flask_cors import CORS
 import os
 import librosa
@@ -34,13 +35,13 @@ class App:
         def preprocessing():
             return
         
-        # @self.app_bp.route('/preparedata', methods= ['POST'])
-        # def prepare_data():
-        #     return
+        @self.app_bp.route('/preparedata', methods= ['POST'])
+        def prepare_data():
+            return
         
-        # @self.app_bp.route('/predict', methods = ['POST'])
-        # def predict():
-        #     return
+        @self.app_bp.route('/predict', methods = ['POST'])
+        def predict():
+            return
         
         @self.app_bp.route('/get_chromaprints', methods = ['POST'])
         def get_chromaprints_api():
@@ -72,32 +73,51 @@ class App:
                 return jsonify({'status': 'error', 'message': str(e)}), 500
         
         @self.app_bp.route('/convert', methods = ['POST'])
-        def convert2wav(input_path, output_folder):
-            if not os.path.isfile( input_path):
-                raise FileNotFoundError(f"Tệp đầu vào không tồn tại: {input_path}")
+        def convert2wav():
+            data = request.get_json()
+            if not data or 'source_directory' not in data or 'destination_directory' not in data:
+                return jsonify({
+                    'status': 'error',
+                    'message': 'Vui lòng cung cấp "source_directory" và "destination_directory".'
+                }), 400
 
-            if not os.path.exists(output_folder):
-                os.makedirs(output_folder)
+            source_directory = data['source_directory']
+            destination_directory = data['destination_directory']
 
-            base_filename = os.path.splitext(os.path.basename(input_path))[0]
-            wav_filename = base_filename + ".wav"
-            wav_path = os.path.join(output_folder, wav_filename)
+            # Kiểm tra thư mục nguồn có tồn tại không
+            if not os.path.exists(source_directory):
+                return jsonify({
+                    'status': 'error',
+                    'message': f"Thư mục nguồn '{source_directory}' không tồn tại."
+                }), 400
 
-            try:
-                y, sr = librosa.load(input_path, sr=None, mono=False)
+            # Tạo thư mục đích nếu chưa tồn tại
+            if not os.path.exists(destination_directory):
+                os.makedirs(destination_directory)
 
-                if y.ndim == 1:
-                    data = y
-                else:
-                    data = y.T
-                sf.write(wav_path, data, sr, subtype='PCM_16') 
+            converted_files = []  # Danh sách các file đã chuyển đổi
 
-                return wav_path
+            # Duyệt qua thư mục nguồn và các thư mục con
+            for root, dirs, files in os.walk(source_directory):
+                for file in files:
+                    if file.lower().endswith(".mp3"):
+                        source_file_path = os.path.join(root, file)
+                        base_name = os.path.splitext(file)[0]
+                        destination_file_path = os.path.join(destination_directory, base_name + ".wav")
+                        try:
+                            # Sử dụng librosa để load file MP3
+                            y, sr = librosa.load(source_file_path, sr=None)  # sr=None để giữ nguyên sample rate gốc
+                            # Ghi file WAV sử dụng soundfile
+                            sf.write(destination_file_path, y, sr)
+                            converted_files.append(destination_file_path)
+                        except Exception as e:
+                            # Ghi log lỗi chuyển đổi, có thể xử lý thêm nếu cần
+                            print(f"Lỗi khi chuyển đổi {source_file_path}: {e}")
 
-            except Exception as e:
-                print(f"Lỗi khi chuyển đổi tệp {input_path}: {e}")
-                raise
-
+            return jsonify({
+                'status': 'success',
+                'converted_files': converted_files
+            })
         
         @self.app_bp.route('/segment', methods = ['POST'])
         def segment_song():
