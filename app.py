@@ -1,14 +1,15 @@
 import os
 from flask import Flask, request, make_response, Response, Blueprint,render_template,redirect, jsonify
 from get_chromaprint_func import get_chromaprints, get_all_chromaprints
+from segment_song_func import process_audio_file
 import json
 from dotenv import load_dotenv
-from pydub import AudioSegment
 from flask_cors import CORS
 import os
 import librosa
 import soundfile as sf
 import shutil
+import multiprocessing
 import essentia.standard as es
 import acoustid as ai
 
@@ -43,34 +44,51 @@ class App:
         def predict():
             return
         
-        @self.app_bp.route('/get_chromaprints', methods = ['POST'])
-        def get_chromaprints_api():
-            data = request.get_json()
-            if not data or 'audio_path' not in data:
-                    return jsonify({'status': 'error', 'message':'Missing audio_path'}), 400
-            audio_path = data['audio_path']
-            is_save_res = data.get('is_save_res', True)
-            try:
-                segments = get_chromaprints(audio_path, is_save_res)
-                return jsonify({'status': 'success', 'chromaprint_segments': segments})
-            except Exception as e:
-                return jsonify({'status': 'error', 'message': str(e)}), 500
+        # @self.app_bp.route('/get_chromaprints', methods = ['POST'])
+        # def get_chromaprints_api():
+        #     data = request.get_json()
+        #     if not data or 'audio_path' not in data:
+        #             return jsonify({'status': 'error', 'message':'Missing audio_path'}), 400
+        #     audio_path = data['audio_path']
+        #     is_save_res = data.get('is_save_res', True)
+        #     try:
+        #         segments = get_chromaprints(audio_path, is_save_res)
+        #         return jsonify({'status': 'success', 'chromaprint_segments': segments})
+        #     except Exception as e:
+        #         return jsonify({'status': 'error', 'message': str(e)}), 500
 
         @self.app_bp.route('/get_all_chromaprints', methods= ['POST'])
         def get_all_chromaprints_api():
             data = request.get_json()
-            if not data or 'file_paths' not in data:
-                return jsonify({'status': 'error', 'message': 'Thiếu tham số file_paths'}), 400
+            if not data or 'source_directory' not in data or 'destination_directory' not in data:
+                return jsonify({'status': 'error', 'message': 'Thiếu tham số source_directory hoặc destination_directory'}), 400
 
-            file_paths = data['file_paths']
-            if not isinstance(file_paths, list):
-                return jsonify({'status': 'error', 'message': 'file_paths phải là một danh sách các đường dẫn'}), 400
+            source_directory = data['source_directory']
+            destination_directory = data['destination_directory']
 
-            try:
-                results = get_all_chromaprints(file_paths)
-                return jsonify({'status': 'success', 'results': results})
-            except Exception as e:
-                return jsonify({'status': 'error', 'message': str(e)}), 500
+            if not os.path.exists(source_directory):
+                return jsonify({'status': 'error', 'message': f"Thư mục nguồn '{source_directory}' không tồn tại."}), 400
+
+            if not os.path.exists(destination_directory):
+                os.makedirs(destination_directory)
+
+            audio_files = []
+            for root, dirs, files in os.walk(source_directory):
+                for file in files:
+                    audio_files.append(os.path.join(root, file))
+
+            args_list = [(file_path, destination_directory) for file_path in audio_files]
+
+            processed_files = []
+            with multiprocessing.Pool() as pool:
+                results = pool.map(get_chromaprints, args_list)
+                processed_files = [r for r in results if r is not None]
+
+            return jsonify({
+                'status': 'success',
+                'total_processed': len(processed_files),
+                'processed_files': processed_files
+            })
         
         @self.app_bp.route('/convert', methods = ['POST'])
         def convert2wav():
@@ -84,20 +102,16 @@ class App:
             source_directory = data['source_directory']
             destination_directory = data['destination_directory']
 
-            # Kiểm tra thư mục nguồn có tồn tại không
             if not os.path.exists(source_directory):
                 return jsonify({
                     'status': 'error',
                     'message': f"Thư mục nguồn '{source_directory}' không tồn tại."
                 }), 400
 
-            # Tạo thư mục đích nếu chưa tồn tại
             if not os.path.exists(destination_directory):
                 os.makedirs(destination_directory)
 
-            converted_files = []  # Danh sách các file đã chuyển đổi
-
-            # Duyệt qua thư mục nguồn và các thư mục con
+            converted_files = []
             for root, dirs, files in os.walk(source_directory):
                 for file in files:
                     if file.lower().endswith(".mp3"):
@@ -105,13 +119,11 @@ class App:
                         base_name = os.path.splitext(file)[0]
                         destination_file_path = os.path.join(destination_directory, base_name + ".wav")
                         try:
-                            # Sử dụng librosa để load file MP3
-                            y, sr = librosa.load(source_file_path, sr=None)  # sr=None để giữ nguyên sample rate gốc
-                            # Ghi file WAV sử dụng soundfile
+                            y, sr = librosa.load(source_file_path, sr=None)
                             sf.write(destination_file_path, y, sr)
                             converted_files.append(destination_file_path)
+                            print(f"Chuyển đổi thành công : {base_name}")
                         except Exception as e:
-                            # Ghi log lỗi chuyển đổi, có thể xử lý thêm nếu cần
                             print(f"Lỗi khi chuyển đổi {source_file_path}: {e}")
 
             return jsonify({
@@ -121,8 +133,51 @@ class App:
         
         @self.app_bp.route('/segment', methods = ['POST'])
         def segment_song():
+            audio_extensions = {'.mp3', '.wav', '.flac', '.aac', '.ogg', '.m4a'}
+            data = request.get_json()
+            if not data or 'source_directory' not in data or 'destination_directory' not in data:
+                return jsonify({
+                    'status': 'error',
+                    'message': 'Vui lòng cung cấp "source_directory" và "destination_directory".'
+                }), 400
 
-            return
+            source_directory = data['source_directory']
+            destination_directory = data['destination_directory']
+
+            if not os.path.exists(source_directory):
+                return jsonify({
+                    'status': 'error',
+                    'message': f"Thư mục nguồn '{source_directory}' không tồn tại."
+                }), 400
+
+            if not os.path.exists(destination_directory):
+                os.makedirs(destination_directory)
+
+            segment_duration = 10  
+            step_duration = 2
+            audio_files = []
+            for root, dirs, files in os.walk(source_directory):
+                for file in files:
+                    ext = os.path.splitext(file)[1].lower()
+                    if ext in audio_extensions:
+                        audio_files.append(os.path.join(root, file))
+                        print(file)
+
+            pool_args = [(audio_file, destination_directory, segment_duration, step_duration) for audio_file in audio_files]
+
+            all_segments = []
+            with multiprocessing.Pool() as pool:
+                results = pool.map(process_audio_file, pool_args)
+                for segments in results:
+                    all_segments.extend(segments)
+
+            return jsonify({
+                'status': 'success',
+                'total_segments': len(all_segments),
+                'segments': all_segments
+            })
+
+            
         
         @self.app_bp.route('/augment', methods = ['POST'])
         def augment():
