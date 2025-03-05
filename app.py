@@ -44,18 +44,18 @@ class App:
         def predict():
             return
         
-        @self.app_bp.route('/get_chromaprints', methods = ['POST'])
-        def get_chromaprints_api():
-            data = request.get_json()
-            if not data or 'audio_path' not in data:
-                    return jsonify({'status': 'error', 'message':'Missing audio_path'}), 400
-            audio_path = data['audio_path']
-            is_save_res = data.get('is_save_res', True)
-            try:
-                segments = get_chromaprints(audio_path, is_save_res)
-                return jsonify({'status': 'success', 'chromaprint_segments': segments})
-            except Exception as e:
-                return jsonify({'status': 'error', 'message': str(e)}), 500
+        # @self.app_bp.route('/get_chromaprints', methods = ['POST'])
+        # def get_chromaprints_api():
+        #     data = request.get_json()
+        #     if not data or 'audio_path' not in data:
+        #             return jsonify({'status': 'error', 'message':'Missing audio_path'}), 400
+        #     audio_path = data['audio_path']
+        #     is_save_res = data.get('is_save_res', True)
+        #     try:
+        #         segments = get_chromaprints(audio_path, is_save_res)
+        #         return jsonify({'status': 'success', 'chromaprint_segments': segments})
+        #     except Exception as e:
+        #         return jsonify({'status': 'error', 'message': str(e)}), 500
 
         @self.app_bp.route('/get_all_chromaprints', methods= ['POST'])
         def get_all_chromaprints_api():
