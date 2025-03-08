@@ -59,12 +59,6 @@ def process_audio_file(args):
     return segments
 
 def segment_audio_files(source_directory, destination_directory, segment_duration=10, step_duration=2):
-    """
-    Segment các file audio (mp3, wav, flac, aac, ogg, m4a) trong source_directory.
-    Nếu file là mp3 thì sử dụng file đã chuyển đổi (đã lưu ở destination_directory)
-    để segment, còn file khác sẽ được segment trực tiếp từ source.
-    Kết quả segmentation được lưu tại destination_directory theo cấu trúc tương ứng.
-    """
     audio_extensions = {'.mp3', '.wav', '.flac', '.aac', '.ogg', '.m4a'}
     pool_args = []
 
