@@ -131,51 +131,51 @@ class App:
                 'converted_files': converted_files
             })
         
-        @self.app_bp.route('/segment', methods = ['POST'])
-        def segment_song():
-            audio_extensions = {'.mp3', '.wav', '.flac', '.aac', '.ogg', '.m4a'}
-            data = request.get_json()
-            if not data or 'source_directory' not in data or 'destination_directory' not in data:
-                return jsonify({
-                    'status': 'error',
-                    'message': 'Vui lòng cung cấp "source_directory" và "destination_directory".'
-                }), 400
+        # @self.app_bp.route('/segment', methods = ['POST'])
+        # def segment_song():
+        #     audio_extensions = {'.mp3', '.wav', '.flac', '.aac', '.ogg', '.m4a'}
+        #     data = request.get_json()
+        #     if not data or 'source_directory' not in data or 'destination_directory' not in data:
+        #         return jsonify({
+        #             'status': 'error',
+        #             'message': 'Vui lòng cung cấp "source_directory" và "destination_directory".'
+        #         }), 400
 
-            source_directory = data['source_directory']
-            destination_directory = data['destination_directory']
+        #     source_directory = data['source_directory']
+        #     destination_directory = data['destination_directory']
 
-            if not os.path.exists(source_directory):
-                return jsonify({
-                    'status': 'error',
-                    'message': f"Thư mục nguồn '{source_directory}' không tồn tại."
-                }), 400
+        #     if not os.path.exists(source_directory):
+        #         return jsonify({
+        #             'status': 'error',
+        #             'message': f"Thư mục nguồn '{source_directory}' không tồn tại."
+        #         }), 400
 
-            if not os.path.exists(destination_directory):
-                os.makedirs(destination_directory)
+        #     if not os.path.exists(destination_directory):
+        #         os.makedirs(destination_directory)
 
-            segment_duration = 10  
-            step_duration = 2
-            audio_files = []
-            for root, dirs, files in os.walk(source_directory):
-                for file in files:
-                    ext = os.path.splitext(file)[1].lower()
-                    if ext in audio_extensions:
-                        audio_files.append(os.path.join(root, file))
-                        print(file)
+        #     segment_duration = 10  
+        #     step_duration = 2
+        #     audio_files = []
+        #     for root, dirs, files in os.walk(source_directory):
+        #         for file in files:
+        #             ext = os.path.splitext(file)[1].lower()
+        #             if ext in audio_extensions:
+        #                 audio_files.append(os.path.join(root, file))
+        #                 print(file)
 
-            pool_args = [(audio_file, destination_directory, segment_duration, step_duration) for audio_file in audio_files]
+        #     pool_args = [(audio_file, destination_directory, segment_duration, step_duration) for audio_file in audio_files]
 
-            all_segments = []
-            with multiprocessing.Pool() as pool:
-                results = pool.map(process_audio_file, pool_args)
-                for segments in results:
-                    all_segments.extend(segments)
+        #     all_segments = []
+        #     with multiprocessing.Pool() as pool:
+        #         results = pool.map(process_audio_file, pool_args)
+        #         for segments in results:
+        #             all_segments.extend(segments)
 
-            return jsonify({
-                'status': 'success',
-                'total_segments': len(all_segments),
-                'segments': all_segments
-            })
+        #     return jsonify({
+        #         'status': 'success',
+        #         'total_segments': len(all_segments),
+        #         'segments': all_segments
+        #     })
 
             
         
