@@ -44,20 +44,20 @@ class App:
         def predict():
             return
         
-        # @self.app_bp.route('/get_chromaprints', methods = ['POST'])
-        # def get_chromaprints_api():
-        #     data = request.get_json()
-        #     if not data or 'audio_path' not in data:
-        #             return jsonify({'status': 'error', 'message':'Missing audio_path'}), 400
-        #     audio_path = data['audio_path']
-        #     is_save_res = data.get('is_save_res', True)
-        #     try:
-        #         segments = get_chromaprints(audio_path, is_save_res)
-        #         return jsonify({'status': 'success', 'chromaprint_segments': segments})
-        #     except Exception as e:
-        #         return jsonify({'status': 'error', 'message': str(e)}), 500
+        @self.app_bp.route('/get_chromaprints', methods = ['POST'])
+        def get_chromaprints_api():
+            data = request.get_json()
+            if not data or 'audio_path' not in data:
+                    return jsonify({'status': 'error', 'message':'Missing audio_path'}), 400
+            audio_path = data['audio_path']
+            is_save_res = data.get('is_save_res', True)
+            try:
+                segments = get_chromaprints(audio_path, is_save_res)
+                return jsonify({'status': 'success', 'chromaprint_segments': segments})
+            except Exception as e:
+                return jsonify({'status': 'error', 'message': str(e)}), 500
 
-        @self.app_bp.route('/get_all_chromaprints', methods= ['POST'])
+        @self.app_bp.route('/get_all_chromaprints', methods=['POST'])
         def get_all_chromaprints_api():
             data = request.get_json()
             if not data or 'source_directory' not in data or 'destination_directory' not in data:
@@ -72,12 +72,19 @@ class App:
             if not os.path.exists(destination_directory):
                 os.makedirs(destination_directory)
 
-            audio_files = []
+            args_list = []
             for root, dirs, files in os.walk(source_directory):
                 for file in files:
-                    audio_files.append(os.path.join(root, file))
-
-            args_list = [(file_path, destination_directory) for file_path in audio_files]
+                    file_path = os.path.join(root, file)
+                    # Tính đường dẫn tương đối từ thư mục nguồn
+                    relative_path = os.path.relpath(file_path, source_directory)
+                    # Tạo đường dẫn file đích, thay thế đuôi (.wav, .mp3, ...) bằng .json
+                    dest_file_path = os.path.splitext(os.path.join(destination_directory, relative_path))[0] + ".json"
+                    # Đảm bảo thư mục chứa file đích tồn tại
+                    dest_dir = os.path.dirname(dest_file_path)
+                    if not os.path.exists(dest_dir):
+                        os.makedirs(dest_dir, exist_ok=True)
+                    args_list.append((file_path, dest_file_path))
 
             processed_files = []
             with multiprocessing.Pool() as pool:
@@ -131,51 +138,51 @@ class App:
                 'converted_files': converted_files
             })
         
-        # @self.app_bp.route('/segment', methods = ['POST'])
-        # def segment_song():
-        #     audio_extensions = {'.mp3', '.wav', '.flac', '.aac', '.ogg', '.m4a'}
-        #     data = request.get_json()
-        #     if not data or 'source_directory' not in data or 'destination_directory' not in data:
-        #         return jsonify({
-        #             'status': 'error',
-        #             'message': 'Vui lòng cung cấp "source_directory" và "destination_directory".'
-        #         }), 400
+        @self.app_bp.route('/segment', methods = ['POST'])
+        def segment_song():
+            audio_extensions = {'.mp3', '.wav', '.flac', '.aac', '.ogg', '.m4a'}
+            data = request.get_json()
+            if not data or 'source_directory' not in data or 'destination_directory' not in data:
+                return jsonify({
+                    'status': 'error',
+                    'message': 'Vui lòng cung cấp "source_directory" và "destination_directory".'
+                }), 400
 
-        #     source_directory = data['source_directory']
-        #     destination_directory = data['destination_directory']
+            source_directory = data['source_directory']
+            destination_directory = data['destination_directory']
 
-        #     if not os.path.exists(source_directory):
-        #         return jsonify({
-        #             'status': 'error',
-        #             'message': f"Thư mục nguồn '{source_directory}' không tồn tại."
-        #         }), 400
+            if not os.path.exists(source_directory):
+                return jsonify({
+                    'status': 'error',
+                    'message': f"Thư mục nguồn '{source_directory}' không tồn tại."
+                }), 400
 
-        #     if not os.path.exists(destination_directory):
-        #         os.makedirs(destination_directory)
+            if not os.path.exists(destination_directory):
+                os.makedirs(destination_directory)
 
-        #     segment_duration = 10  
-        #     step_duration = 2
-        #     audio_files = []
-        #     for root, dirs, files in os.walk(source_directory):
-        #         for file in files:
-        #             ext = os.path.splitext(file)[1].lower()
-        #             if ext in audio_extensions:
-        #                 audio_files.append(os.path.join(root, file))
-        #                 print(file)
+            segment_duration = 10  
+            step_duration = 2
+            audio_files = []
+            for root, dirs, files in os.walk(source_directory):
+                for file in files:
+                    ext = os.path.splitext(file)[1].lower()
+                    if ext in audio_extensions:
+                        audio_files.append(os.path.join(root, file))
+                        print(file)
 
-        #     pool_args = [(audio_file, destination_directory, segment_duration, step_duration) for audio_file in audio_files]
+            pool_args = [(audio_file, destination_directory, segment_duration, step_duration) for audio_file in audio_files]
 
-        #     all_segments = []
-        #     with multiprocessing.Pool() as pool:
-        #         results = pool.map(process_audio_file, pool_args)
-        #         for segments in results:
-        #             all_segments.extend(segments)
+            all_segments = []
+            with multiprocessing.Pool() as pool:
+                results = pool.map(process_audio_file, pool_args)
+                for segments in results:
+                    all_segments.extend(segments)
 
-        #     return jsonify({
-        #         'status': 'success',
-        #         'total_segments': len(all_segments),
-        #         'segments': all_segments
-        #     })
+            return jsonify({
+                'status': 'success',
+                'total_segments': len(all_segments),
+                'segments': all_segments
+            })
 
             
         
