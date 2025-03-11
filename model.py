@@ -157,7 +157,6 @@ def create_cnn_lstm_branch_single(input_shape):
     x = MaxPooling2D(pool_size=(4,4), strides=(4,4), padding='same')(x)
     x = Dropout(0.25)(x)
     
-    # Reshape cho LSTM: từ (batch, h, w, c) -> (w, h*c)
     conv_shape = backend.int_shape(x)
     h = conv_shape[1]
     w = conv_shape[2]
