@@ -5,17 +5,18 @@ from multiprocessing import Pool
 from sklearn.model_selection import train_test_split
 from tensorflow.keras.utils import to_categorical
 from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Input, Conv1D, MaxPooling1D, Dropout, Flatten, Dense, BatchNormalization
+from tensorflow.keras.layers import Input, Conv2D, BatchNormalization, Activation, MaxPooling2D, Dropout, Flatten, Dense
 import tensorflow as tf
 
 # -------------------------------
 # 1. Load dữ liệu chromaprints từ file JSON sử dụng multiprocessing
 chromaprints_dir = "music_dataset_chromaprints"  # Giữ nguyên đường dẫn cũ
+os.environ["CUDA_VISIBLE_DEVICES"] = "-1"  # Tắt GPU, chỉ sử dụng CPU
 
 def load_json_file(file_path):
     """
     Load file JSON, trích xuất key "chromaprints" và lấy nhãn từ cấu trúc thư mục.
-    Ta tính trung bình các segment để tạo vector đặc trưng cố định.
+    Ta giữ nguyên ma trận đặc trưng (không tính trung bình).
     Nếu thành công, trả về tuple (features, label).
     """
     try:
@@ -55,13 +56,10 @@ target_seg_length = 30
 X_list = []
 y_list = []
 for feat, label in zip(features_list, labels_list):
-    # Bỏ qua nếu feat là mảng rỗng
     if feat.size == 0:
         continue
-    # Nếu feat là mảng 1 chiều, reshape thành (1, len)
     if feat.ndim == 1:
         feat = feat.reshape(1, -1)
-    # Kiểm tra lại kích thước sau reshape
     if feat.shape[0] == 0 or feat.shape[1] == 0:
         continue
     num_segments, seg_length = feat.shape
@@ -70,38 +68,48 @@ for feat, label in zip(features_list, labels_list):
         feat = np.pad(feat, pad_width=((0, 0), (0, pad_width)), mode='constant')
     elif seg_length > target_seg_length:
         feat = feat[:, :target_seg_length]
-    # Tính trung bình các segment theo axis=0 => vector có shape (30,)
-    avg_feat = np.mean(feat, axis=0)
-    X_list.append(avg_feat)
+    # Không tính trung bình, giữ nguyên ma trận có shape (num_segments, 30)
+    X_list.append(feat)
     y_list.append(label)
 
-X = np.array(X_list)
-print("Features shape:", X.shape)  # (num_samples, 30)
-print("Total samples after filtering:", X.shape[0])
-# Đồng thời cập nhật nhãn
-y_indices = np.array([label_to_idx[label] for label in y_list]) if 'label_to_idx' in globals() else None
+if len(X_list) == 0:
+    raise ValueError("Không có mẫu dữ liệu nào sau quá trình xử lý! Kiểm tra lại dữ liệu nguồn.")
 
-# Nếu bạn chưa tạo bảng ánh xạ nhãn, tạo ở bước 3:
-if y_indices is None:
-    unique_labels = sorted(list(set(y_list)))
-    label_to_idx = {label: idx for idx, label in enumerate(unique_labels)}
-    print("Unique labels:", unique_labels)
-    y_indices = np.array([label_to_idx[label] for label in y_list])
+# Tính số dòng tối đa (max_segments) để pad theo chiều số dòng
+max_segments = max(feat.shape[0] for feat in X_list)
+padded_features = []
+for feat in X_list:
+    num_segments, seg_length = feat.shape
+    pad_amount = max_segments - num_segments
+    feat_padded = np.pad(feat, pad_width=((0, pad_amount), (0, 0)), mode='constant')
+    # Thêm dimension channel => shape: (max_segments, target_seg_length, 1)
+    feat_padded = np.expand_dims(feat_padded, axis=-1)
+    padded_features.append(feat_padded)
+
+X = np.array(padded_features)
+print("Padded features shape:", X.shape)  # (num_samples, max_segments, 30, 1)
+print("Total samples after filtering:", X.shape[0])
 
 # -------------------------------
 # 3. Chuẩn hóa dữ liệu (Min-Max scaling per sample)
-X_min = np.min(X, axis=1, keepdims=True)
-X_max = np.max(X, axis=1, keepdims=True)
+X_min = np.min(X, axis=(1,2,3), keepdims=True)
+X_max = np.max(X, axis=(1,2,3), keepdims=True)
 X = (X - X_min) / (X_max - X_min + 1e-8)
 
 # -------------------------------
-# 4. Chia dữ liệu: Sử dụng toàn bộ dữ liệu cho huấn luyện, và tạo tập test từ tập train sao chép & xáo trộn.
-X_train = X  # 100% dữ liệu cho training
+# 4. Tạo bảng ánh xạ nhãn và chuyển đổi nhãn sang số
+unique_labels = sorted(list(set(y_list)))
+label_to_idx = {label: idx for idx, label in enumerate(unique_labels)}
+print("Unique labels:", unique_labels)
+y_indices = np.array([label_to_idx[label] for label in y_list])
+
+# -------------------------------
+# 5. Sử dụng toàn bộ dữ liệu cho huấn luyện và tạo tập test bằng sao chép & xáo trộn.
+X_train = X  # 100% dữ liệu dùng cho training
 y_train = y_indices
-num_classes = len(set(y_list))
+num_classes = len(unique_labels)
 y_train_cat = to_categorical(y_train, num_classes=num_classes)
 
-# Tạo tập test là bản sao của train, sau đó xáo trộn ngẫu nhiên
 X_test = np.copy(X_train)
 y_test = np.copy(y_train)
 perm = np.random.permutation(len(X_test))
@@ -110,29 +118,24 @@ y_test = y_test[perm]
 y_test_cat = to_categorical(y_test, num_classes=num_classes)
 
 # -------------------------------
-# 5. Reshape dữ liệu cho CNN 1D: mỗi vector có 30 chiều -> (30, 1)
-X_train = X_train.reshape(-1, target_seg_length, 1)
-X_test = X_test.reshape(-1, target_seg_length, 1)
-print("Reshaped training data:", X_train.shape)
-print("Reshaped test data:", X_test.shape)
-
-# -------------------------------
-# 6. Xây dựng mô hình CNN 1D cho chromaprints
+# 6. Xây dựng mô hình CNN 2D cho chromaprints
+# Input shape: (max_segments, target_seg_length, 1)
+input_shape = X_train.shape[1:]  # (max_segments, 30, 1)
 model = Sequential([
-    Input(shape=(target_seg_length, 1)),
-    Conv1D(filters=64, kernel_size=5, activation='relu', padding='same'),
+    Input(shape=input_shape),
+    Conv2D(filters=32, kernel_size=(3,3), activation='relu', padding='same'),
     BatchNormalization(),
-    MaxPooling1D(pool_size=2),
-    Dropout(0.3),
-    Conv1D(filters=128, kernel_size=3, activation='relu', padding='same'),
+    MaxPooling2D(pool_size=(1,2), padding='same'),
+    Dropout(0.25),
+    Conv2D(filters=64, kernel_size=(3,3), activation='relu', padding='same'),
     BatchNormalization(),
-    MaxPooling1D(pool_size=2),
-    Dropout(0.3),
-    Conv1D(filters=256, kernel_size=3, activation='relu', padding='same'),
+    MaxPooling2D(pool_size=(1,2), padding='same'),
+    Dropout(0.25),
+    Conv2D(filters=128, kernel_size=(3,3), activation='relu', padding='same'),
     BatchNormalization(),
-    MaxPooling1D(pool_size=2),
-    Dropout(0.3),
-    tf.keras.layers.GlobalAveragePooling1D(),
+    MaxPooling2D(pool_size=(1,2), padding='same'),
+    Dropout(0.25),
+    Flatten(),
     Dense(128, activation='relu'),
     Dropout(0.5),
     Dense(num_classes, activation='softmax')
@@ -147,7 +150,7 @@ early_stop = EarlyStopping(monitor='loss', patience=10, restore_best_weights=Tru
 
 history = model.fit(
     X_train, y_train_cat,
-    batch_size=32,
+    batch_size=16,
     epochs=100,
     callbacks=[early_stop]
 )
