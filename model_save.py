@@ -13,6 +13,9 @@ from sklearn.preprocessing import LabelEncoder
 import librosa
 from elasticsearch import Elasticsearch
 from elasticsearch.helpers import bulk
+from pytube import YouTube
+from pydub import AudioSegment
+import tempfile
 
 # ---------- CẤU HÌNH TOÀN CỤC ----------
 SEGMENT_LENGTH = 10          # Độ dài đoạn âm thanh: 10 giây
@@ -119,17 +122,17 @@ def create_pairs(X, y):
     n = len(X)
     for i in range(n):
         current_label = y[i]
-        # Cặp dương
+        # Tạo cặp dương (similar)
         pos_indices = label_indices[current_label]
         if len(pos_indices) > 1:
             j = np.random.choice([idx for idx in pos_indices if idx != i])
             pairs.append([X[i], X[j]])
-            pair_labels.append(0)  # similar
-        # Cặp âm
+            pair_labels.append(0)
+        # Tạo cặp âm (dissimilar)
         neg_label = np.random.choice([l for l in label_indices.keys() if l != current_label])
         neg_index = np.random.choice(label_indices[neg_label])
         pairs.append([X[i], X[neg_index]])
-        pair_labels.append(1)  # dissimilar
+        pair_labels.append(1)
     return np.array(pairs), np.array(pair_labels)
 
 def create_base_network(input_shape):
@@ -170,25 +173,7 @@ def build_siamese_model(input_shape):
     model.summary()
     return model, base_network
 
-# ---------- PHẦN TÍNH EMBEDDING CHO FILE (ĐỂ INDEX VÀ TRUY VẤN) ----------
-def sliding_window_embedding(file_path, base_network):
-    try:
-        segments = extract_fp_segments_from_audio(file_path)
-        if not segments:
-            return None
-        embeddings = []
-        for seg in segments:
-            seg_exp = np.expand_dims(seg, axis=0)  # shape: (1, FINGERPRINT_SEGMENT_LENGTH, 1)
-            seg_exp = np.expand_dims(seg_exp, axis=-1)  # shape: (1, FINGERPRINT_SEGMENT_LENGTH, 1, 1)
-            emb = base_network.predict(seg_exp)
-            embeddings.append(emb[0])
-        embeddings = np.array(embeddings)
-        mean_emb = np.mean(embeddings, axis=0)
-        return mean_emb
-    except Exception as e:
-        print(f"Error in sliding window embedding for {file_path}: {e}")
-        return None
-
+# ---------- PHẦN TÍNH EMBEDDING CHO FILE ----------
 def extract_fp_segments_from_audio(file_path):
     try:
         audio = MonoLoader(filename=file_path)()
@@ -206,6 +191,24 @@ def extract_fp_segments_from_audio(file_path):
         print(f"Error extracting fingerprint segments from {file_path}: {e}")
         return []
 
+def sliding_window_embedding(file_path, base_network):
+    try:
+        segments = extract_fp_segments_from_audio(file_path)
+        if not segments:
+            return None
+        embeddings = []
+        for seg in segments:
+            seg_exp = np.expand_dims(seg, axis=0)  # (1, FINGERPRINT_SEGMENT_LENGTH, 1)
+            seg_exp = np.expand_dims(seg_exp, axis=-1)  # (1, FINGERPRINT_SEGMENT_LENGTH, 1, 1)
+            emb = base_network.predict(seg_exp)
+            embeddings.append(emb[0])
+        embeddings = np.array(embeddings)
+        mean_emb = np.mean(embeddings, axis=0)
+        return mean_emb
+    except Exception as e:
+        print(f"Error in sliding window embedding for {file_path}: {e}")
+        return None
+
 # ---------- PHẦN INTEGRATE WITH ELASTICSEARCH ----------
 def create_elasticsearch_index(es, index_name, embedding_dim):
     mapping = {
@@ -213,10 +216,7 @@ def create_elasticsearch_index(es, index_name, embedding_dim):
             "properties": {
                 "file_path": {"type": "keyword"},
                 "label": {"type": "keyword"},
-                "embedding": {
-                    "type": "dense_vector",
-                    "dims": embedding_dim
-                }
+                "embedding": {"type": "dense_vector", "dims": embedding_dim}
             }
         }
     }
@@ -241,7 +241,6 @@ def index_embeddings(es, index_name, embeddings_dict):
     print(f"Indexed {len(actions)} documents into '{index_name}'")
 
 def search_similar(es, index_name, query_embedding, top_k=5):
-    # Sử dụng cosine similarity
     script_query = {
         "script_score": {
             "query": {"match_all": {}},
@@ -251,15 +250,21 @@ def search_similar(es, index_name, query_embedding, top_k=5):
             }
         }
     }
-    response = es.search(index=index_name, body={
-        "size": top_k,
-        "query": script_query
-    })
+    response = es.search(index=index_name, body={"size": top_k, "query": script_query})
     return response
+
+def download_audio_from_youtube(url, output_path="temp_audio.wav"):
+    yt = YouTube(url)
+    audio_stream = yt.streams.filter(only_audio=True).first()
+    downloaded_file = audio_stream.download(filename="temp_audio.mp4")
+    sound = AudioSegment.from_file(downloaded_file, format="mp4")
+    sound.export(output_path, format="wav")
+    os.remove(downloaded_file)
+    return output_path
 
 # ---------- CHẠY TOÀN BỘ LUỒNG ----------
 if __name__ == '__main__':
-    # Bước 1: Extract chromaprints từ các file audio huấn luyện
+    # Bước 1: Extract chromaprints từ tập huấn luyện
     print("Collecting training audio file paths...")
     training_files = get_audio_file_paths(AUDIO_FOLDER)
     print(f"Found {len(training_files)} audio files.")
@@ -281,14 +286,20 @@ if __name__ == '__main__':
     print("Number of unique classes:", num_classes)
     
     input_shape = (FINGERPRINT_SEGMENT_LENGTH, 1, 1)
-    # Tạo các cặp cho huấn luyện Siamese
+    # Tạo cặp cho Siamese network
     pairs, pair_labels = create_pairs(X, y)
     print("Pairs shape:", pairs.shape, "Pair labels shape:", pair_labels.shape)
     
+    # Huấn luyện Siamese network
     siamese_model, base_network = build_siamese_model(input_shape)
     siamese_model.fit([pairs[:,0], pairs[:,1]], pair_labels, batch_size=32, epochs=50, validation_split=0.2)
     
-    # Tính embedding cho mỗi file huấn luyện bằng cách trung bình embedding của các segment
+    # Lưu mô hình sau khi huấn luyện
+    siamese_model.save("siamese_model.h5")
+    base_network.save("base_network.h5")
+    print("Models saved to disk.")
+    
+    # Tính embedding cho mỗi file huấn luyện và index vào Elasticsearch
     embeddings_by_file = {}
     for file_path in training_files:
         true_label = os.path.basename(file_path).split('_')[0]
@@ -297,16 +308,17 @@ if __name__ == '__main__':
             embeddings_by_file[file_path] = (true_label, emb)
             print(f"File: {os.path.basename(file_path)} | Label: {true_label}")
     
-    # ---------- Tích hợp Elasticsearch ----------
     es = Elasticsearch("http://localhost:9200")
     index_name = "music_embeddings"
     create_elasticsearch_index(es, index_name, EMBEDDING_DIM)
     index_embeddings(es, index_name, embeddings_by_file)
     
-    # Thực hiện truy vấn tìm kiếm cho một file trong tập train (test = train)
-    query_file = training_files[0]
-    query_embedding = sliding_window_embedding(query_file, base_network)
+    # Dự đoán với video từ YouTube
+    youtube_url = "https://www.youtube.com/watch?v=s6Ff23-0wb8"  # Thay URL nếu cần
+    print("Downloading audio from YouTube...")
+    test_audio_path = download_audio_from_youtube(youtube_url, output_path="youtube_test.wav")
+    query_embedding = sliding_window_embedding(test_audio_path, base_network)
     response = search_similar(es, index_name, query_embedding, top_k=5)
-    print("\nSearch results for query file:", os.path.basename(query_file))
+    print("\nSearch results for YouTube video:")
     for hit in response["hits"]["hits"]:
         print(f"File: {hit['_source']['file_path']}, Label: {hit['_source']['label']}, Score: {hit['_score']:.4f}")
