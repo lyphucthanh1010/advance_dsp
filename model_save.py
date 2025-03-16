@@ -252,15 +252,25 @@ def search_similar(es, index_name, query_embedding, top_k=5):
     }
     response = es.search(index=index_name, body={"size": top_k, "query": script_query})
     return response
+import yt_dlp
 
-def download_audio_from_youtube(url, output_path="temp_audio.wav"):
-    yt = YouTube(url)
-    audio_stream = yt.streams.filter(only_audio=True).first()
-    downloaded_file = audio_stream.download(filename="temp_audio.mp4")
-    sound = AudioSegment.from_file(downloaded_file, format="mp4")
-    sound.export(output_path, format="wav")
-    os.remove(downloaded_file)
-    return output_path
+def download_audio_from_youtube(url, output_path="temp_audio"):
+    """
+    Tải file audio từ YouTube mà không sử dụng ffmpeg (bằng cách tắt postprocessing).
+    File sẽ được tải với định dạng gốc (ví dụ m4a) và lưu với tên output_path + .<ext>
+    """
+    ydl_opts = {
+        'format': 'bestaudio/best',
+        'outtmpl': output_path + '.%(ext)s',
+        'postprocessors': [],  # Tắt postprocessing => không sử dụng ffmpeg
+        'quiet': True,
+    }
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=True)
+    ext = info.get('ext', 'm4a')
+    downloaded_file = output_path + f'.{ext}'
+    return downloaded_file
+
 
 # ---------- CHẠY TOÀN BỘ LUỒNG ----------
 if __name__ == '__main__':
