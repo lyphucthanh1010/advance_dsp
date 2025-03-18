@@ -1,243 +1,182 @@
 import os
-from flask import Flask, request, make_response, Response, Blueprint,render_template,redirect, jsonify
-from get_chromaprint_func import get_chromaprints, get_all_chromaprints
-from segment_song_func import process_audio_file
-import json
-from dotenv import load_dotenv
-from flask_cors import CORS
-import os
-import librosa
-import soundfile as sf
 import shutil
+import datetime
+from flask import Flask, request, jsonify, Response
+import yt_dlp
+import pika
+import json
 import multiprocessing
-import essentia.standard as es
-import acoustid as ai
+import numpy as np
+from model import process_real_data_and_copy_files, empty_directory
+from repository import savePredictionsResult
+from prepare import get_chromaprints_to_test
+from prepare_real import get_chromaprints
+from task import chromaprints_comparations
+from pytube import YouTube 
+app = Flask(__name__)
 
-class App:
-    def __init__(self):
-        self.app = Flask(__name__)
-        self.app_bp = Blueprint('app', __name__)
-        self._setup_routes()
-        self._initialize_app()
-        CORS(self.app)
+dataset_model_path = 'dataset'
+datafull_path = 'datasetreal'
+dataset_path = "copied_json_files"
+model_path = 'model.pkl'
+THRESHOLD_CONFIDENCE = 0.85  
+def fallback_search_datasetreal(query_chromaprints):
+    fallback_results = []
+    for file in os.listdir(datafull_path):
+        if file.endswith('.json'):
+            file_path = os.path.join(datafull_path, file)
+            with open(file_path, 'r') as f:
+                json_data = json.load(f)
+            dataset_chromaprints = json_data.get("chromaprints", [])
+            label = json_data.get("label", "")
+            res = chromaprints_comparations(fp_full=query_chromaprints, fp_frag=dataset_chromaprints)
+            if res is not None:
+                fallback_results.append((res[0], res[1], label, res[2]))
+    return fallback_results
+
+def process_song(song, source_20bit):
+    json_file_path = os.path.join(dataset_path, song)
+    with open(json_file_path, 'r') as json_file:
+        full_20bit = json.load(json_file)
+    chromaprint = full_20bit['chromaprints']
+    res = chromaprints_comparations(fp_full=source_20bit, fp_frag=chromaprint)
+    if res is not None:
+        file_name = os.path.splitext(song)[0]
+        start_dur, end_dur, prob = res
+        return start_dur, end_dur, file_name, prob
+    else:
+        return None
+
+def process_video_source(audio_file_path):
+    temp_dir = os.path.join("temp", datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))
+    os.makedirs(temp_dir, exist_ok=True)
+    try:
+        source_20bit = get_chromaprints_to_test(audio_file_path, is_save_res=False, is_return_len=False)
+        
+        process_real_data_and_copy_files(dataset_model_path, model_path, source_20bit, data_full=datafull_path)
+        
+        data_20bit, audio_len = get_chromaprints(audio_file_path)
+        
+        with multiprocessing.Pool() as pool:
+            song_files = [song for song in os.listdir(dataset_path) if song.endswith('.json')]
+            song_args = [(song_file, data_20bit) for song_file in song_files]
+            result = pool.starmap(process_song, song_args)
+        
+        filtered_results = [r for r in result if r is not None]
+        if filtered_results:
+            return filtered_results, audio_len / 44100
+        else:
+            fallback_results = fallback_search_datasetreal(data_20bit)
+            if fallback_results:
+                return fallback_results, audio_len / 44100
+            else:
+                return None, audio_len / 44100
+    except Exception as e:
+        print("Error:", e)
+        return None, None
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+def group_predictions(predictions):
+    grouped = {}
+    for pred in predictions:
+        start, end, label, conf = pred
+        base_name = label.rsplit('_', 1)[0]
+        if base_name not in grouped:
+            grouped[base_name] = {"start": start, "end": end, "confidence": conf}
+        else:
+            grouped[base_name]["start"] = min(grouped[base_name]["start"], start)
+            grouped[base_name]["end"] = max(grouped[base_name]["end"], end)
+            grouped[base_name]["confidence"] = max(grouped[base_name]["confidence"], conf)
+    result = []
+    for base, info in grouped.items():
+        result.append((info["start"], info["end"], base, info["confidence"]))
+    return result
+
+def process_audio_youtube(video_id, is_upload_db=False):
+    if not os.path.exists("uploads"):
+        os.makedirs("uploads")
+    audio_file_path = os.path.join("uploads", f"{video_id}.mp3")
+    print(f"Processing Video Id: {video_id}")
+    try:
+        ydl_opts = {
+            'format': 'bestaudio/best',
+            'outtmpl': os.path.join("uploads", f"{video_id}.%(ext)s"),
+            'postprocessors': [{
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'mp3',
+                'preferredquality': '320',
+            }],
+            'ffmpeg_location': '/usr/bin'
+        }
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([f'https://www.youtube.com/watch?v={video_id}'])
+        print('Download successfully')
+    except Exception as e:
+        return {"error": f"Failed to download audio from YouTube: {str(e)}"}
     
-    def _initialize_app(self):
-        with self.app.app_context():
-            load_dotenv()
-            if self.app.name not in self.app.blueprints:
-                self.app.register_blueprint(self.app_bp, url_prefix='/uit/dsp')
+    if os.path.exists(audio_file_path):
+        results, audio_duration = process_video_source(audio_file_path)
+        print(f"Results: {results}")
+        if results:
+            filtered_results = [r for r in results if r[3] >= THRESHOLD_CONFIDENCE]
+            if filtered_results:
+                grouped = group_predictions(filtered_results)
+                predictions = [
+                    {"start": r[0], "end": r[1], "label": r[2], "confidence": round(r[3], 2)}
+                    for r in grouped
+                ]
+                return {"predictions": predictions}
+            else:
+                return {"msg": "No predictions with confidence >= 0.85"}
+        else:
+            return {"msg": "Cannot predict this song"}
+    else:
+        return {"error": "Audio file not found"}
 
-    def _setup_routes(self):
-        @self.app.route('/')
-        def redirect_to_dsp():
-            return redirect('/uit/dsp/')
-        
-        @self.app_bp.route('/preprocess', methods=['POST'])
-        def preprocessing():
-            return
-        
-        @self.app_bp.route('/preparedata', methods= ['POST'])
-        def prepare_data():
-            return
-        
-        @self.app_bp.route('/predict', methods = ['POST'])
-        def predict():
-            return
-        
-        @self.app_bp.route('/get_chromaprints', methods = ['POST'])
-        def get_chromaprints_api():
-            data = request.get_json()
-            if not data or 'audio_path' not in data:
-                    return jsonify({'status': 'error', 'message':'Missing audio_path'}), 400
-            audio_path = data['audio_path']
-            is_save_res = data.get('is_save_res', True)
-            try:
-                segments = get_chromaprints(audio_path, is_save_res)
-                return jsonify({'status': 'success', 'chromaprint_segments': segments})
-            except Exception as e:
-                return jsonify({'status': 'error', 'message': str(e)}), 500
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in {'wav'}
 
-        @self.app_bp.route('/get_all_chromaprints', methods=['POST'])
-        def get_all_chromaprints_api():
-            data = request.get_json()
-            if not data or 'source_directory' not in data or 'destination_directory' not in data:
-                return jsonify({'status': 'error', 'message': 'Thiếu tham số source_directory hoặc destination_directory'}), 400
+@app.route('/predict', methods=['POST'])
+def predict():
+    if 'file' not in request.files:
+        return jsonify({"error": "No file part"}), 400
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({"error": "No selected file"}), 400
+    if file and allowed_file(file.filename):
+        audio_file_path = os.path.join("uploads", datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))
+        file.save(audio_file_path)
+        results, audio_duration = process_video_source(audio_file_path)
+        print("Result:", results)
+        if results:
+            filtered_results = [r for r in results if r[3] >= THRESHOLD_CONFIDENCE]
+            if filtered_results:
+                grouped = group_predictions(filtered_results)
+                predictions = [
+                    {"start": r[0], "end": r[1], "label": r[2], "confidence": round(r[3], 2)}
+                    for r in grouped
+                ]
+                return jsonify({"predictions": predictions}), 200
+            else:
+                return jsonify({"msg": "No predictions with confidence >= 0.85"}), 200
+    return jsonify({"msg": "Processed"}), 200
 
-            source_directory = data['source_directory']
-            destination_directory = data['destination_directory']
+@app.route('/predict_from_youtube', methods=['POST'])
+def predict_from_youtube():
+    if 'video_id' not in request.form:
+        return jsonify({"error": "No video ID provided"}), 400
+    video_id = request.form['video_id']
+    if not video_id:
+        return jsonify({"error": "Empty video ID provided"}), 400
+    if not os.path.exists("uploads"):
+        os.makedirs("uploads")
+    results = process_audio_youtube(video_id)
+    if results:
+        if isinstance(results, Response):
+            return results
+        return jsonify(results), 200
+    return jsonify({"msg": "Cannot predict this song"}), 200
 
-            if not os.path.exists(source_directory):
-                return jsonify({'status': 'error', 'message': f"Thư mục nguồn '{source_directory}' không tồn tại."}), 400
-
-            if not os.path.exists(destination_directory):
-                os.makedirs(destination_directory)
-
-            args_list = []
-            for root, dirs, files in os.walk(source_directory):
-                for file in files:
-                    file_path = os.path.join(root, file)
-                    # Tính đường dẫn tương đối từ thư mục nguồn
-                    relative_path = os.path.relpath(file_path, source_directory)
-                    # Tạo đường dẫn file đích, thay thế đuôi (.wav, .mp3, ...) bằng .json
-                    dest_file_path = os.path.splitext(os.path.join(destination_directory, relative_path))[0] + ".json"
-                    # Đảm bảo thư mục chứa file đích tồn tại
-                    dest_dir = os.path.dirname(dest_file_path)
-                    if not os.path.exists(dest_dir):
-                        os.makedirs(dest_dir, exist_ok=True)
-                    args_list.append((file_path, dest_file_path))
-
-            processed_files = []
-            with multiprocessing.Pool() as pool:
-                results = pool.map(get_chromaprints, args_list)
-                processed_files = [r for r in results if r is not None]
-
-            return jsonify({
-                'status': 'success',
-                'total_processed': len(processed_files),
-                'processed_files': processed_files
-            })
-        
-        @self.app_bp.route('/convert', methods = ['POST'])
-        def convert2wav():
-            data = request.get_json()
-            if not data or 'source_directory' not in data or 'destination_directory' not in data:
-                return jsonify({
-                    'status': 'error',
-                    'message': 'Vui lòng cung cấp "source_directory" và "destination_directory".'
-                }), 400
-
-            source_directory = data['source_directory']
-            destination_directory = data['destination_directory']
-
-            if not os.path.exists(source_directory):
-                return jsonify({
-                    'status': 'error',
-                    'message': f"Thư mục nguồn '{source_directory}' không tồn tại."
-                }), 400
-
-            if not os.path.exists(destination_directory):
-                os.makedirs(destination_directory)
-
-            converted_files = []
-            for root, dirs, files in os.walk(source_directory):
-                for file in files:
-                    if file.lower().endswith(".mp3"):
-                        source_file_path = os.path.join(root, file)
-                        base_name = os.path.splitext(file)[0]
-                        destination_file_path = os.path.join(destination_directory, base_name + ".wav")
-                        try:
-                            y, sr = librosa.load(source_file_path, sr=None)
-                            sf.write(destination_file_path, y, sr)
-                            converted_files.append(destination_file_path)
-                            print(f"Chuyển đổi thành công : {base_name}")
-                        except Exception as e:
-                            print(f"Lỗi khi chuyển đổi {source_file_path}: {e}")
-
-            return jsonify({
-                'status': 'success',
-                'converted_files': converted_files
-            })
-        
-        @self.app_bp.route('/segment', methods = ['POST'])
-        def segment_song():
-            audio_extensions = {'.mp3', '.wav', '.flac', '.aac', '.ogg', '.m4a'}
-            data = request.get_json()
-            if not data or 'source_directory' not in data or 'destination_directory' not in data:
-                return jsonify({
-                    'status': 'error',
-                    'message': 'Vui lòng cung cấp "source_directory" và "destination_directory".'
-                }), 400
-
-            source_directory = data['source_directory']
-            destination_directory = data['destination_directory']
-
-            if not os.path.exists(source_directory):
-                return jsonify({
-                    'status': 'error',
-                    'message': f"Thư mục nguồn '{source_directory}' không tồn tại."
-                }), 400
-
-            if not os.path.exists(destination_directory):
-                os.makedirs(destination_directory)
-
-            segment_duration = 10  
-            step_duration = 2
-            audio_files = []
-            for root, dirs, files in os.walk(source_directory):
-                for file in files:
-                    ext = os.path.splitext(file)[1].lower()
-                    if ext in audio_extensions:
-                        audio_files.append(os.path.join(root, file))
-                        print(file)
-
-            pool_args = [(audio_file, destination_directory, segment_duration, step_duration) for audio_file in audio_files]
-
-            all_segments = []
-            with multiprocessing.Pool() as pool:
-                results = pool.map(process_audio_file, pool_args)
-                for segments in results:
-                    all_segments.extend(segments)
-
-            return jsonify({
-                'status': 'success',
-                'total_segments': len(all_segments),
-                'segments': all_segments
-            })
-
-            
-        
-        @self.app_bp.route('/augment', methods = ['POST'])
-        def augment():
-            return
-        
-        @self.app_bp.route('/train', methods = ['POST'])
-        def train():
-            return
-        
-        @self.app_bp.route('/validate', methods = ['POST'])
-        def validate():
-            return
-        
-        @self.app_bp.route('/predict_youtube', methods = ['POST'])
-        def predict_youtube():
-            print("")
-            return
-        @self.app_bp.route('/move', methods = ['POST'])
-        def move():
-            data = request.get_json() or {}
-            source_directory = data.get('source_directory', "Music")
-            destination_directory = data.get('destination_directory', "music_dataset")
-            if not os.path.exists(destination_directory):
-                os.makedirs(destination_directory)
-            moved_files = []
-            for root, dirs, files in os.walk(source_directory):
-                for file in files:
-                    ext= os.path.splitext(file)[1].lower()
-                    if ext in self.audio_extensions:
-                        source_file = os.path.join(root, file)
-                        destination_file = os.path.join(destination_directory, file)
-                        if os.path.exists(destination_file):
-                            base, extension = os.path.splitext(file)
-                            count = 1
-                            new_file = f"{base}_{count}{extension}"
-                            destination_file = os.path.join(destination_directory, new_file)
-                            while os.path.exists(destination_file):
-                                count += 1
-                                new_file = f"{base}_{count}{extension}"
-                                destination_file = os.path.join(destination_directory, new_file)
-
-                        shutil.move(source_file, destination_file)
-                        moved_files.append(destination_file)
-
-            return jsonify({'status': 'success', 'moved_files': moved_files})
-        
-        @self.app_bp.route('/')
-        def home():
-            return render_template('index.html')
-
-    def run(self):
-        self.app.run(host='', port=os.getenv('FLASK_PORT'), debug=True)
-
-if __name__ == "__main__":
-    app_dsp = App()
-    app_dsp.run()
+if __name__ == '__main__':
+    app.run(debug=True, port=8000)
