@@ -22,6 +22,7 @@ fs = 44100
 #     if len(chromaprint_segments[-1]) != 100:
 #         del chromaprint_segments[-1]
 #     return chromaprint_segments
+
 def get_chromaprints(audio_path, is_save_res=True):
     output_directory = "dataset"
     if not os.path.exists(output_directory):
@@ -29,11 +30,9 @@ def get_chromaprints(audio_path, is_save_res=True):
     
     all_chromaprint_segments = []
     
-    # Nếu audio_path là file, chuyển nó thành danh sách chứa duy nhất file đó
     if os.path.isfile(audio_path):
         files = [audio_path]
     else:
-        # Nếu là thư mục, lấy tất cả file WAV trong thư mục gốc
         files = [os.path.join(audio_path, f) for f in os.listdir(audio_path)
                  if f.endswith(".wav") and os.path.isfile(os.path.join(audio_path, f))]
     
