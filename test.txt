@@ -1,0 +1,5 @@
+curl -X POST -F "video_id=X-yIEMduRXk" --insecure -w "Total time: %{time_total}\n" http://localhost:8000/predict_from_youtube
+
+
+curl -X POST -F "file=@/mnt/e/UIT/THẠC SĨ/XỬ LÝ TÍN HIỆU SỐ NÂNG CAO/ProjectDSP/dataset_segment/@coldplay - Yellow (Lyrics)/@coldplay - Yellow (Lyrics)_4.wav" -w "Total time: %{time_total}\n" http://localhost:8000/predict
+
