@@ -7,11 +7,11 @@ music_dataset_chromaprints
 music_dataset_structure
 Music
 chromaprints_output
-dataset
-datasetreal
+# dataset
+# datasetreal
 model.pkl
 label_encoder.pkl
-copied_json_files
+# copied_json_files
 dataset_segment
 uploads
 archive

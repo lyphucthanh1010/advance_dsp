@@ -4,6 +4,9 @@
 
 API này được xây dựng bằng Flask nhằm dự đoán vi phạm bản quyền trong âm nhạc thông qua một mô hình Keras đã được huấn luyện sẵn. API hỗ trợ nhận đầu vào là tệp âm thanh hoặc ID video YouTube và trả về kết quả dự đoán.
 
+File model: model.pkl
+Dataset: folder dataset
+Dataset để test: folder datasetreal
 ## Cài đặt
 
 1. **Tạo môi trường ảo (tuỳ chọn):**
